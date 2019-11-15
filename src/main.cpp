@@ -2,91 +2,108 @@
 #include <queue>
 #include <vector>
 #include <pthread.h>
+#include <unistd.h>
+#include <tbb/concurrent_queue.h>
 
 using Graph_t = std::vector<std::vector<int>>;
+
+struct Work {
+    int vertex;
+    std::string type;
+};
+
+struct Result {
+    bool found;
+    std::string type;
+};
 
 Graph_t graph;
 std::vector<bool> used;
 std::vector<int> parent;
-std::vector<std::queue<int>> queues;
-std::queue<int> mainQueue;
-bool found = false;
-bool alive = true;
-int numberOfThreads;
+tbb::concurrent_bounded_queue<Work> tasks;
+tbb::concurrent_queue<Result> results;
+int numberOfThreads = 1;
+int threadsFinished = 0;
 pthread_mutex_t lock;
-pthread_cond_t cond;
-int threadsFinished;
+bool found = false;
 
-void sendSignal() {
-    pthread_mutex_lock(&lock);
-    pthread_cond_broadcast(&cond);
-    pthread_mutex_unlock(&lock);
-}
 
 void* threadPool(void* params) {
-    int id = *(int*)params;
-    while(alive) {
+    bool done = false;
+    Work currentTask;
+    while(!done) {
         pthread_mutex_lock(&lock);
-        while(1) {
-            pthread_cond_wait(&cond, &lock);
-            break;
-        }
+        ++threadsFinished;
+        int currentlyFinished = threadsFinished;
         pthread_mutex_unlock(&lock);
-        while(!queues[id].empty()) {
-            int currentVertex = queues[id].front();
-            queues[id].pop();
-            for(const auto& v : graph[currentVertex]) {
-                pthread_mutex_lock(&lock);
-                if(!used[v]) {
-                    used[v] = true;
-                    mainQueue.push(v);
-                    parent[v] = currentVertex;
-                } else if(parent[currentVertex] != v) {
-                    found = true;
-                }
+        if(currentlyFinished + 1 == numberOfThreads) {
+            results.push({false, "Done"});
+        }
+        tasks.pop(currentTask);
+        pthread_mutex_lock(&lock);
+        --threadsFinished;
+        pthread_mutex_unlock(&lock);
+        if(currentTask.type == "Done") {
+            done = true;
+            continue;
+        }
+        for(const auto& vertex : graph[currentTask.vertex]) {
+            pthread_mutex_lock(&lock);
+            if(!used[vertex]) {
+                used[vertex] = true;
+                parent[vertex] = currentTask.vertex;
+                tasks.push({vertex,  "Continue"});
+            } else if(parent[currentTask.vertex] != vertex) {
+                //results.push({1, "Continue"});
+                found = true;
                 pthread_mutex_unlock(&lock);
+                continue;
             }
+            pthread_mutex_unlock(&lock);
         }
-        pthread_mutex_lock(&lock);
-        threadsFinished++;
-        pthread_mutex_unlock(&lock);
-    }
+        results.push({false, "Continue"});
+    }    
     pthread_exit(NULL);
 }
 
-bool multithreadedBFS(int startingVertex) {
-    used.assign(graph.size(), false);
-    parent.assign(graph.size(), 0);
-    mainQueue.push(startingVertex);
-    used[startingVertex] = true;
-    queues.resize(numberOfThreads);
-    int threadCount = 0;
-    while(1) {
-        threadsFinished = 0;
-        while(!mainQueue.empty()) {
-            int temp = mainQueue.front();
-            mainQueue.pop();
-            queues[threadCount%(numberOfThreads - 1)].push(temp);
-            threadCount++;
-        }
-        threadCount %= (numberOfThreads - 1);
-        sendSignal();
-        while(threadsFinished != numberOfThreads - 1);
-        if(mainQueue.empty()) {
-            break;
+
+void multithreadedBFS(int startingVertex) {
+    pthread_t threads[numberOfThreads];
+    for(int i = 0; i < numberOfThreads; ++i) {
+        pthread_create(&threads[i], NULL, threadPool, (void*)0);
+    }
+    tasks.push({startingVertex, "Continue"});
+    bool done = false;
+    while(!done) {
+        Result r;
+        results.try_pop(r);
+        //if(r.found) {
+           // std::cout << "1" << std::endl;
+       // }
+       // found |= r.found;
+        if(r.type == "Done") {
+            done = true;
         }
     }
+    for(int i = 0; i < numberOfThreads; ++i) {
+        tasks.push({startingVertex, "Done"});
+    }
+    for(int i = 0; i < numberOfThreads; ++i) {
+        pthread_join(threads[i], NULL);
+    }
+    std::cout << "Mutlithreaded: ";
     if(found) {
-        return true;
+        std::cout << "Cycle found" << std::endl;
+    } else {
+        std::cout << "Cycle not found" << std::endl;
     }
-    return false;
 }
 
 bool singlethreadedBFS(const Graph_t& graph, int startingVertex) {
     std::queue<int> q;
     q.push(startingVertex);
     std::vector<bool> used(graph.size());
-    std::vector<int> parent(graph.size());
+    std::vector<int> parent(graph.size(), -1);
     used[startingVertex] = true;
     while(!q.empty()) {
         int currentVertex = q.front();
@@ -96,7 +113,7 @@ bool singlethreadedBFS(const Graph_t& graph, int startingVertex) {
                 used[v] = true;
                 q.push(v);
                 parent[v] = currentVertex;
-            } else if(parent[currentVertex] != v) {
+            } else if (parent[currentVertex] != v) {
                 return true;
             }
         }
@@ -118,43 +135,31 @@ int main() {
     }
     int s;
     std::cin >> s;
+    if(s < 0 || s > n) {
+        std::cout << "Node with such ID doesn't exist" << std::endl;
+        return -1;
+    }
     s -= 1;
+    std::cout << "Singlethreaded:";
     if(singlethreadedBFS(graph, s)) {
         std::cout << "Cycle found" << std::endl;
     } else {
         std::cout << "Cycle not found" << std::endl;
     }
-    if(s < 0 || s > n) {
-        std::cout << "Node with such ID doesn't exist" << std::endl;
-        return -1;
-    }
     std::cin >> numberOfThreads;
-    std::vector<pthread_t> threads(numberOfThreads);
     if(numberOfThreads < 1) {
-        std::cout << "Number of threads must be positive number" << std::endl;
+        std::cout << "Number of threads must be at least 1" << std::endl;
         return -1;
     }
-    if(numberOfThreads > n) {
-        std::cout << "Number of threads can't be greater than number of nodes" << std::endl;
+    if(numberOfThreads > n - 1) {
+        std::cout << "Number of threads can't be greater than number of nodes - 1" << std::endl;
         return -1;
     }
+    std::vector<pthread_t> threads(numberOfThreads);
+    used.assign(graph.size(), false);
+    parent.assign(graph.size(), -1);
     pthread_mutex_init(&lock, NULL);
-    int params[numberOfThreads];
-    for(int i = 0; i < numberOfThreads; ++i) {
-        params[i] = i;
-        pthread_create(&threads[i], NULL, threadPool, (void*)(params + i));
-    }
-    multithreadedBFS(s); 
-    if(found) {
-        std::cout << "Cycle found" << std::endl;
-    } else {
-        std::cout << "Cycle not found" << std::endl;
-    }
-    alive = false;
-    sendSignal();
-    for(int i = 0; i < numberOfThreads; ++i) {
-        pthread_join(threads[i], NULL);
-    }
+    multithreadedBFS(s);
     pthread_mutex_destroy(&lock);
     return 0;
 }
