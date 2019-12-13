@@ -1,0 +1,147 @@
+\documentclass[a4paper, 12pt]{article}
+\usepackage{cmap}
+\usepackage[12pt]{extsizes}			
+\usepackage{mathtext} 				
+\usepackage[T2A]{fontenc}			
+\usepackage[utf8]{inputenc}			
+\usepackage[english,russian]{babel}
+\usepackage{setspace}
+\singlespacing
+\usepackage{amsmath,amsfonts,amssymb,amsthm,mathtools}
+\usepackage{fancyhdr}
+\usepackage{soulutf8}
+\usepackage{euscript}
+\usepackage{mathrsfs}
+\usepackage{listings}
+\pagestyle{fancy}
+\usepackage{indentfirst}
+\usepackage[top=10mm]{geometry}
+\rhead{}
+\lhead{}
+\renewcommand{\headrulewidth}{0mm}
+\usepackage{tocloft}
+\renewcommand{\cftsecleader}{\cftdotfill{\cftdotsep}}
+\usepackage[dvipsnames]{xcolor}
+
+\lstdefinestyle{mystyle}{ 
+	keywordstyle=\color{OliveGreen},
+	numberstyle=\tiny\color{Gray},
+	stringstyle=\color{BurntOrange},
+	basicstyle=\ttfamily\footnotesize,
+	breakatwhitespace=false,         
+	breaklines=true,                 
+	captionpos=b,                    
+	keepspaces=true,                 
+	numbers=left,                    
+	numbersep=5pt,                  
+	showspaces=false,                
+	showstringspaces=false,
+	showtabs=false,                  
+	tabsize=2
+}
+
+\lstset{style=mystyle}
+
+\begin{document}
+\thispagestyle{empty}	
+\begin{center}
+	Московский авиационный институт
+	
+	(Национальный исследовательский университет)
+	
+	Факультет "Информационные технологии и прикладная математика"
+	
+	Кафедра "Вычислительная математика и программирование"
+	
+\end{center}
+\vspace{40ex}
+\begin{center}
+	\textbf{\large{Лабораторная работа №3 по курсу\linebreak \textquotedblleft Операционные системы\textquotedblright}}
+\end{center}
+\vspace{35ex}
+\begin{flushright}
+	\textit{Студент: } Живалев Е.А.
+	
+	\vspace{2ex}
+	\textit{Группа: } М8О-206Б
+	
+	\vspace{2ex}
+	\textit{Преподаватель: } Соколов А.А.
+	
+	\vspace{2ex}
+	\textit{Вариант: 6} 
+	
+	\vspace{2ex}
+	\textit{Оценка: } \underline{\quad\quad\quad\quad\quad\quad}
+	
+	 \vspace{2ex}
+	\textit{Дата: } \underline{\quad\quad\quad\quad\quad\quad}
+	
+	\vspace{2ex}
+	\textit{Подпись: } \underline{\quad\quad\quad\quad\quad\quad}
+	
+\end{flushright}
+
+\vspace{5ex}
+
+\begin{vfill}
+	\begin{center}
+		Москва, 2019
+	\end{center}	
+\end{vfill}
+\newpage
+
+\section{Задание}
+
+Произвести распараллеленный поиск по ненаправленному графу в ширину. Граф задается
+набором значений, что хранятся в вершинах, и набором пар связей. Информация по графу
+хранится в отдельном файле. Необходимо определить есть ли в графе циклы.
+
+В ходе выполнения лабораторной работы были использованы следующие системные вызовы:
+
+\begin{itemize}
+	\item pthread\_create - создание нового процесса
+	\item pthread\_join - ожидание завершения работы потока
+	\item pthread\_exit - завершение потока
+	\item pthread\_mutex\_lock - захват мьютекса
+	\item pthread\_mutex\_unlock - освобождение мьютекса
+\end{itemize}
+\section{Описание работы программы}
+
+Я попытался реализовать threadpool, в который я мог бы отправлять задачи(обработку конкретной вершины графа) и получать ответ. Я создал две очереди, одна - для отправки задач, вторая - для получения результатов. Поток, обрабатывая вершину графа, отмечает в массиве used, что вершина была посещена и добавляет в очередь заданий все вершины, соединенные с текущей, а также для них в массиве parent отмечает, что текущая вершина является их родителем. Если же вершина, соединенная с текущей, была посещена, то проверяется, что она является родителем текущей вершины, иначе в графе существует цикл. Операции, связанные с добавлением заданий в очереди, а также обновлением массивов used и parent блокируются во избежании гонки за ресурсами.
+
+\newpage
+
+\section{Исходный код}
+
+
+
+\textbf{\large{main.c}}
+\lstinputlisting[language=C++]{../src/main.cpp}
+\newpage
+\section{Консоль}
+
+\begin{verbatim}
+	qelderdelta@qelderdelta-UX331UA:~/Study/OS/os_lab_3/src/build$ ./lab3
+	3 3
+	1 2
+	2 3
+	3 1
+	1
+	Singlethreaded: Cycle found
+	2
+	Multithreaded: Cycle found
+	qelderdelta@qelderdelta-UX331UA:~/Study/OS/os_lab_3/src/build$ ./lab3
+	3 2
+	1 2
+	2 3
+	1
+	Singlethreaded: Cycle not found
+	2
+	Multithreaded: Cycle not found                       
+\end{verbatim}
+\newpage
+\section{Выводы}
+
+В ходе выполнения лабораторной работы я получил очень важный почти для любого разработчика опыт написания многопоточных программ. Конкретно я познакомился с тем, как устроены потоки в ОС Linux, а также с устройством такого примитива синхронизации как мьютекс.
+\end{document}
